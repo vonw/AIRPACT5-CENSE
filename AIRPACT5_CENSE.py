@@ -78,9 +78,9 @@ def relativeHealthRisk(date, latitude, longitude, age, condition):
     CRFs = pd.read_csv('CRFs by age year-Table 1.csv', header=[1], na_values=['NaN', '-'])
     
     # ....Calculate the relative increase in health risk
-    crf = CRFs[condition]
-    riskIncrease = 1. - np.exp(-crf[age] * pm25)
+    CRF = CRFs[condition]
+    riskIncrease = 1. - np.exp(-CRF[age] * pm25)
     personalRiskIncrease = riskIncrease[ilat, ilon]
     
-    return personalRiskIncrease, riskIncrease
+    return personalRiskIncrease, riskIncrease, CRF
 
