@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 Python functions related to the Cardiopulmonary Events from Smoke Estimator (CENSE)
-project at Washington State University. This project is led by Dr. Joe Vaughn
+project at Washington State University. This project is led by Dr. Joe Vaughan
 with collaboration from Dr. Matt Kadlec from the Washington State Department
 of Ecology.
 
 Python code written by Von P. Walden, Washington State University
+
+Update: 19 Nov 2019 - Added second function to compute health risk per zipcode.
+
 """
 
 def relativeHealthRisk(date, latitude, longitude, age, condition):
@@ -71,8 +74,6 @@ def relativeHealthRisk(date, latitude, longitude, age, condition):
     longitudes = np.reshape(grid.LON.values,(258,285))
     ilat, ilon = find_WRF_pixel(latitudes, longitudes, latitude, longitude)
 
-    # ....Determine row and column for desired latitude and longitude.
-    
     # ....Read the Concentration Response Functions (CRFs)
     #     These were obtained from Matt Kadlec, WA Department of Ecology
     CRFs = pd.read_csv('CRFs by age year-Table 1.csv', header=[1], na_values=['NaN', '-'])
@@ -84,3 +85,67 @@ def relativeHealthRisk(date, latitude, longitude, age, condition):
     
     return personalRiskIncrease, riskIncrease, CRF
 
+def relativeHealthRiskPerZipcode(date, age, condition):
+    """
+    This function determines the relative increase in health risk for 
+    various conditions as a function of the atmospheric PM2.5 levels.
+    
+    Input:
+        date      - desired data for determining health risk
+                     (e.g., date = pd.to_datetime('now') - pd.Timedelta('1D'))
+        zipcode   - 5-digit zipcode from the Pacific Northwest
+        age       - age of person for determining health risk (0-110)
+        condition - medical condition for determining health risk
+                        One of the following:
+                            'Non-trauma EDV CRFs [ICD 10: A00-R99]',
+                            'Asthma HA CRFs [ICD 10: J45]',
+                            'WA baseline incidence rate (per person per day)',
+                            'Asthma symptoms onset CRFs [ICD 10: J45]',
+                            'COPD Emergency HA  CRFs [ICD 10: J41,J42,J43,J44]',
+                            'Acute Otitis Media (ear ache) Outpatient healthcare CRFs [ICD-10: H65, H66, H67, H68, H69, J10, J11, J12]',
+                            'Respiratory Disease HA CRFs [ICD 10: J00-J99]',
+                            'Ischemic heart disease EDV CRFs [ICD 10: I20-I25, I46, I49]'
+
+    Output:
+        personalRiskIncrease - Health risk increase for a person with given
+                                latitude, longitude, age and condition for 
+                                given date.
+        riskIncrease         - Map of health risk increase for a person with 
+                                desired age and condition for given date.
+    """
+    import numpy  as np
+    import pandas as pd
+    import requests
+    
+    # ....Determine date.    now   = pd.to_datetime('now') - pd.Timedelta('1D')
+    year  = str(date.year)
+    month = str(date.month).zfill(2)
+    day   = str(date.day).zfill(2)
+    
+    # ....Download PM2.5 forecast from AIRPACT5 for desire date.
+    webAddress = 'http://lar.wsu.edu/airpact/airraid/' + year + '/' + 'PM25_24hr_' + year + month + day + '.json'
+    airpact    = pd.read_json('[' + requests.get(webAddress).content.decode('utf-8')[:-2] + ']')
+    r = airpact.ROW.values.max()
+    c = airpact.COL.values.max()
+    pm25 = airpact.RollingA24_PM25.values.reshape(c,r).T
+    
+    # ....Determine the indices into the AIRPACT forecast for the zipcode
+    zipcodes   = np.loadtxt('zipcodes.txt').reshape((258,285)).astype(int)
+    
+
+    # ....Read the Concentration Response Functions (CRFs)
+    #     These were obtained from Matt Kadlec, WA Department of Ecology
+    CRFs = pd.read_csv('CRFs by age year-Table 1.csv', header=[1], na_values=['NaN', '-'])
+    CRF = CRFs[condition]
+    
+    # ....Calculate the relative increase in health risk for each zipcode
+    personalRiskIncrease = []
+    for zipcode in np.unique(zipcodes)[1:]:
+        try:
+            # ....Average the PM2.5 over the zipcode area
+            rz,cz      = np.where(zipcodes == zipcode)
+            personalRiskIncrease.append(1. - np.exp(-CRF[age] * pm25[rz,cz].mean()))
+        except:
+            personalRiskIncrease.append(None)
+    
+    return np.unique(zipcodes)[1:], np.array(personalRiskIncrease)
